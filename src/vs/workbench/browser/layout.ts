@@ -14,7 +14,7 @@ import { pathsToEditors, SideBySideEditorInput } from 'vs/workbench/common/edito
 import { SidebarPart } from 'vs/workbench/browser/parts/sidebar/sidebarPart';
 import { PanelPart } from 'vs/workbench/browser/parts/panel/panelPart';
 import { PanelRegistry, Extensions as PanelExtensions } from 'vs/workbench/browser/panel';
-import { Position, Parts, IWorkbenchLayoutService, positionFromString, positionToString } from 'vs/workbench/services/layout/browser/layoutService';
+import { Position, Parts, PanelOpensMaximizedOptions, IWorkbenchLayoutService, positionFromString, positionToString, panelOpensMaximizedFromString } from 'vs/workbench/services/layout/browser/layoutService';
 import { IWorkspaceContextService, WorkbenchState } from 'vs/platform/workspace/common/workspace';
 import { IStorageService, StorageScope, WillSaveStateReason } from 'vs/platform/storage/common/storage';
 import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
@@ -54,6 +54,7 @@ export enum Settings {
 
 	SIDEBAR_POSITION = 'workbench.sideBar.location',
 	PANEL_POSITION = 'workbench.panel.defaultLocation',
+	PANEL_OPENS_MAXIMIZED = 'workbench.panel.opensMaximized',
 
 	ZEN_MODE_RESTORE = 'zenMode.restore',
 }
@@ -68,6 +69,7 @@ enum Storage {
 	PANEL_DIMENSION = 'workbench.panel.dimension',
 	PANEL_LAST_NON_MAXIMIZED_WIDTH = 'workbench.panel.lastNonMaximizedWidth',
 	PANEL_LAST_NON_MAXIMIZED_HEIGHT = 'workbench.panel.lastNonMaximizedHeight',
+	PANEL_LAST_IS_MAXIMIZED = 'workbench.panel.lastIsMaximized',
 
 	EDITOR_HIDDEN = 'workbench.editor.hidden',
 
@@ -1567,9 +1569,30 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 			}
 		}
 
-		// If not maximized and hiding, unmaximize before hiding to allow caching of size
+		// If in process of hiding, remember whether the panel is maximized or not
+		if (hidden && !skipLayout) {
+			if (this.isPanelMaximized()) {
+				this.storageService.store(Storage.PANEL_LAST_IS_MAXIMIZED, 'true', StorageScope.WORKSPACE);
+			}
+			else {
+				this.storageService.remove(Storage.PANEL_LAST_IS_MAXIMIZED, StorageScope.WORKSPACE);
+			}
+		}
+
+		// If maximized and in process of hiding, unmaximize before hiding to allow caching of non-maximized size
 		if (this.isPanelMaximized() && hidden) {
 			this.toggleMaximizedPanel();
+		}
+
+		// Toggle whether or not panel is maximized based on the workspace settings
+		if (!hidden) {
+			if (this.isPanelMaximized() && !this.panelOpensMaximized()) {
+				this.toggleMaximizedPanel();
+			}
+			else if (!this.isPanelMaximized() && this.panelOpensMaximized()) {
+				// don't cache the un-maximized size, directly hide editor
+				this.setEditorHidden(true);
+			}
 		}
 
 		// Propagate to grid
@@ -1610,6 +1633,16 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 			this.setEditorHidden(false);
 			this.workbenchGrid.resizeView(this.panelPartView, { width: this.state.panel.position === Position.BOTTOM ? size.width : this.state.panel.lastNonMaximizedWidth, height: this.state.panel.position === Position.BOTTOM ? this.state.panel.lastNonMaximizedHeight : size.height });
 		}
+	}
+
+	/**
+	 * Returns whether or not the panel opens maximized
+	 */
+	private panelOpensMaximized() {
+		const panelOpensMaximized = panelOpensMaximizedFromString(this.configurationService.getValue<string>(Settings.PANEL_OPENS_MAXIMIZED));
+		const panelLastIsMaximized = this.storageService.get(Storage.PANEL_LAST_IS_MAXIMIZED, StorageScope.WORKSPACE, '');
+
+		return panelOpensMaximized === PanelOpensMaximizedOptions.ALWAYS || (panelOpensMaximized === PanelOpensMaximizedOptions.REMEMBER_LAST && panelLastIsMaximized);
 	}
 
 	hasWindowBorder(): boolean {

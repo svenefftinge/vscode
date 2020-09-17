@@ -118,9 +118,13 @@ export class ToggleMaximizedPanelAction extends Action {
 	async run(): Promise<void> {
 		if (!this.layoutService.isVisible(Parts.PANEL_PART)) {
 			this.layoutService.setPanelHidden(false);
+			if (!this.layoutService.isPanelMaximized()) {
+				this.layoutService.toggleMaximizedPanel();
+			}
 		}
-
-		this.layoutService.toggleMaximizedPanel();
+		else {
+			this.layoutService.toggleMaximizedPanel();
+		}
 	}
 }
 
