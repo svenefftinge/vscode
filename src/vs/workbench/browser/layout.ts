@@ -220,6 +220,7 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 			position: Position.BOTTOM,
 			lastNonMaximizedWidth: 300,
 			lastNonMaximizedHeight: 300,
+			wasLastMaximized: false,
 			panelToRestore: undefined as string | undefined
 		},
 
@@ -533,6 +534,9 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 
 		// Panel visibility
 		this.state.panel.hidden = this.storageService.getBoolean(Storage.PANEL_HIDDEN, StorageScope.WORKSPACE, true);
+
+		// Whether or not the panel was last maximized
+		this.state.panel.wasLastMaximized = this.storageService.getBoolean(Storage.PANEL_LAST_IS_MAXIMIZED, StorageScope.WORKSPACE, false);
 
 		// Panel position
 		this.updatePanelPosition();
@@ -1546,6 +1550,9 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 			return;
 		}
 
+		const isPanelMaximized = this.isPanelMaximized();
+		const panelOpensMaximized = this.panelOpensMaximized();
+
 		// Adjust CSS
 		if (hidden) {
 			this.container.classList.add(Classes.PANEL_HIDDEN);
@@ -1569,46 +1576,47 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 			}
 		}
 
-		// If in process of hiding, remember whether the panel is maximized or not
-		if (hidden && !skipLayout) {
-			if (this.isPanelMaximized()) {
-				this.storageService.store(Storage.PANEL_LAST_IS_MAXIMIZED, 'true', StorageScope.WORKSPACE);
+		// If maximized and in process of hiding, unmaximize before hiding to allow caching of non-maximized size
+		if (hidden && isPanelMaximized) {
+			this.toggleMaximizedPanel();
+		}
+
+		// Propagate layout changes to grid
+		if (!skipLayout) {
+			this.workbenchGrid.setViewVisible(this.panelPartView, !hidden);
+			// If in process of showing, toggle whether or not panel is maximized
+			if (!hidden) {
+				if (isPanelMaximized !== panelOpensMaximized) {
+					this.toggleMaximizedPanel();
+				}
+			}
+			else {
+				// If in process of hiding, remember whether the panel is maximized or not
+				this.state.panel.wasLastMaximized = isPanelMaximized;
+			}
+		}
+
+		// Remember in settings
+		if (!hidden) {
+			this.storageService.store(Storage.PANEL_HIDDEN, 'false', StorageScope.WORKSPACE);
+		}
+		else {
+			this.storageService.remove(Storage.PANEL_HIDDEN, StorageScope.WORKSPACE);
+
+			// Remember this setting only when panel is hiding
+			if (!this.state.panel.wasLastMaximized) {
+				this.storageService.store(Storage.PANEL_LAST_IS_MAXIMIZED, 'false', StorageScope.WORKSPACE);
 			}
 			else {
 				this.storageService.remove(Storage.PANEL_LAST_IS_MAXIMIZED, StorageScope.WORKSPACE);
 			}
 		}
 
-		// If maximized and in process of hiding, unmaximize before hiding to allow caching of non-maximized size
-		if (this.isPanelMaximized() && hidden) {
-			this.toggleMaximizedPanel();
-		}
-
-		// Toggle whether or not panel is maximized based on the workspace settings
-		if (!hidden) {
-			if (this.isPanelMaximized() && !this.panelOpensMaximized()) {
-				this.toggleMaximizedPanel();
-			}
-			else if (!this.isPanelMaximized() && this.panelOpensMaximized()) {
-				// don't cache the un-maximized size, directly hide editor
-				this.setEditorHidden(true);
-			}
-		}
-
-		// Propagate to grid
-		this.workbenchGrid.setViewVisible(this.panelPartView, !hidden);
-
-		// Remember in settings
-		if (!hidden) {
-			this.storageService.store(Storage.PANEL_HIDDEN, 'false', StorageScope.WORKSPACE);
-		} else {
-			this.storageService.remove(Storage.PANEL_HIDDEN, StorageScope.WORKSPACE);
-		}
-
 		// The editor and panel cannot be hidden at the same time
+		/*
 		if (hidden && this.state.editor.hidden) {
 			this.setEditorHidden(false, true);
-		}
+		}*/
 
 		if (focusEditor) {
 			this.editorGroupService.activeGroup.focus(); // Pass focus to editor group if panel part is now hidden
@@ -1640,7 +1648,7 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 	 */
 	private panelOpensMaximized() {
 		const panelOpensMaximized = panelOpensMaximizedFromString(this.configurationService.getValue<string>(Settings.PANEL_OPENS_MAXIMIZED));
-		const panelLastIsMaximized = this.storageService.get(Storage.PANEL_LAST_IS_MAXIMIZED, StorageScope.WORKSPACE, '');
+		const panelLastIsMaximized = this.state.panel.wasLastMaximized;
 
 		return panelOpensMaximized === PanelOpensMaximizedOptions.ALWAYS || (panelOpensMaximized === PanelOpensMaximizedOptions.REMEMBER_LAST && panelLastIsMaximized);
 	}
