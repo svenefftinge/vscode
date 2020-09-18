@@ -1612,12 +1612,6 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
 			}
 		}
 
-		// The editor and panel cannot be hidden at the same time
-		/*
-		if (hidden && this.state.editor.hidden) {
-			this.setEditorHidden(false, true);
-		}*/
-
 		if (focusEditor) {
 			this.editorGroupService.activeGroup.focus(); // Pass focus to editor group if panel part is now hidden
 		}
